@@ -8,8 +8,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - run: pip install pyinstaller pycryptodome pillow psutil wmi pywin32
-      - run: pyinstaller --onefile --console systemhelper.py
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller pycryptodome pillow psutil wmi pywin32
+      - name: Build EXE
+        run: |
+          pyinstaller --onefile --console --hidden-import=win32crypt --hidden-import=wmi --hidden-import=psutil code.py
       - uses: actions/upload-artifact@v4
         with:
           name: exe
