@@ -10,10 +10,10 @@ jobs:
           python-version: '3.10'
       - name: Install dependencies
         run: |
-          pip install pyinstaller pycryptodome pillow psutil wmi pywin32
+          pip install pyinstaller requests pycryptodome pillow psutil wmi pywin32
       - name: Build EXE
         run: |
-          pyinstaller --onefile --console --hidden-import=win32crypt --hidden-import=wmi --hidden-import=psutil code.py
+          pyinstaller --onefile --console --hidden-import=requests --hidden-import=win32crypt --hidden-import=wmi --hidden-import=psutil code.py
       - uses: actions/upload-artifact@v4
         with:
           name: exe
